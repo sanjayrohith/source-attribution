@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+scikit-learn
+spacy
+nltk
+textblob
+joblib
+numpy
+pandas
