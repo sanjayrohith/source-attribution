@@ -6,7 +6,7 @@ def extract_style_features(doc):
     words = [t for t in doc if t.is_alpha]
 
     if len(sentences) == 0 or len(words) == 0:
-        return np.zeros(12)
+        return np.zeros(9)
 
     sent_lengths = [len([t for t in s if t.is_alpha]) for s in sentences]
 

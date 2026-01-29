@@ -1,3 +1,44 @@
-venv/
+# =========================
+# Python bytecode & cache
+# =========================
 __pycache__/
+*.py[cod]
+
+# =========================
+# Virtual environment
+# =========================
+venv/
+pyvenv.cfg
+
+# =========================
+# Trained ML models (large, generated)
+# =========================
+models/
 *.pkl
+
+# =========================
+# Datasets (do not commit)
+# =========================
+data/
+*.csv
+*.json
+
+# =========================
+# NLP / ML cache files
+# =========================
+nltk_data/
+.spacy/
+.cache/
+
+# =========================
+# OS / editor files
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# =========================
+# Logs
+# =========================
+*.log
