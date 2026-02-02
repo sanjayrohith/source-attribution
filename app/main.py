@@ -10,10 +10,10 @@ from .impersonation import check_impersonation
 
 app = FastAPI(title="Fake News & Source Impersonation API")
 
-# CORS configuration (required for React frontend)
+# CORS configuration 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all origins for development
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
