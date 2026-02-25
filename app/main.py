@@ -11,6 +11,7 @@ from .fake_model import predict_fake
 from .source_model import predict_source
 from .impersonation import check_impersonation
 from .scraper import scrape_verify
+from .headlines import fetch_headlines
 
 app = FastAPI(title="Fake News & Source Impersonation API")
 
@@ -63,4 +64,10 @@ def analyze_news(req: NewsRequest):
 async def scrape_verify_news(req: ScrapeRequest):
     result = await scrape_verify(req.content)
     return result
+
+@app.get("/headlines")
+async def get_headlines():
+    headlines = await fetch_headlines()
+    return {"headlines": headlines}
+
 
