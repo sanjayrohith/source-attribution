@@ -12,8 +12,6 @@ import logging
 from urllib.parse import urlparse, quote_plus
 
 import requests
-from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +25,7 @@ _HEADERS = {
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 }
-_TIMEOUT = 8
+_TIMEOUT = 10
 
 # Reputable news domains get higher credibility weight
 _REPUTABLE_DOMAINS = {
@@ -42,26 +40,61 @@ _REPUTABLE_DOMAINS = {
     "fullfact.org", "boomlive.in", "altnews.in",
 }
 
+# Common stop words to strip from search queries
+_STOP_WORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could", "this", "that",
+    "these", "those", "i", "you", "he", "she", "it", "we", "they",
+    "me", "him", "her", "us", "them", "my", "your", "his", "its",
+    "our", "their", "what", "which", "who", "whom", "where", "when",
+    "why", "how", "all", "each", "every", "both", "few", "more",
+    "most", "other", "some", "such", "no", "not", "only", "same",
+    "so", "than", "too", "very", "just", "about", "above", "after",
+    "again", "against", "and", "any", "because", "before", "below",
+    "between", "but", "by", "for", "from", "if", "in", "into",
+    "of", "on", "or", "out", "over", "then", "to", "under", "up",
+    "with", "as", "at", "also", "here", "there", "won", "won't",
+    "don", "don't", "doesn", "doesn't", "didn", "didn't",
+}
+
 
 # ---------------------------------------------------------------------------
-# Query Builder
+# Query Builder — Extract the most important keywords
 # ---------------------------------------------------------------------------
 
 def _build_query(text: str) -> str:
-    """Extract a concise, search-friendly query from news text."""
+    """
+    Build a concise search query from news text.
+    Extracts the most meaningful keywords (max 8-10 words).
+    """
     text = text.strip()
-    # Try first sentence
-    sentence_match = re.match(r"[^.!?]+[.!?]", text)
-    if sentence_match:
-        query = sentence_match.group(0).strip().rstrip(".!?")
-    else:
-        words = text.split()
-        query = " ".join(words[:20])
 
-    # Clean up for search
-    query = re.sub(r"[\"']", "", query)
-    query = re.sub(r"\s+", " ", query)
-    return query.strip()
+    # Remove URLs
+    text = re.sub(r"https?://\S+", "", text)
+    # Remove special characters except spaces and basic punctuation
+    text = re.sub(r"[^\w\s'-]", " ", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Split into words and filter
+    words = text.split()
+    keywords = []
+    for w in words:
+        clean = w.strip("'-").lower()
+        if len(clean) < 3:
+            continue
+        if clean in _STOP_WORDS:
+            continue
+        keywords.append(w)  # Keep original case for proper nouns
+        if len(keywords) >= 10:
+            break
+
+    if not keywords:
+        # Fallback: just take first 8 words
+        return " ".join(words[:8])
+
+    return " ".join(keywords)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +110,7 @@ async def _search_gnews(query: str) -> list[dict]:
 
     def _fetch():
         try:
+            # Use the search endpoint with a short query
             url = (
                 f"https://gnews.io/api/v4/search"
                 f"?q={quote_plus(query)}"
@@ -84,9 +118,14 @@ async def _search_gnews(query: str) -> list[dict]:
                 f"&max=10"
                 f"&apikey={api_key}"
             )
+            logger.info(f"GNews request: q={query}")
             resp = requests.get(url, timeout=_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
+
+            if data.get("errors"):
+                logger.warning(f"GNews API errors: {data['errors']}")
+                return []
 
             results = []
             for article in data.get("articles", []):
@@ -100,6 +139,7 @@ async def _search_gnews(query: str) -> list[dict]:
                     "published_at": article.get("publishedAt", ""),
                     "source_name": article.get("source", {}).get("name", ""),
                 })
+            logger.info(f"GNews returned {len(results)} results")
             return results
         except Exception as e:
             logger.warning(f"GNews search failed: {e}")
@@ -147,6 +187,7 @@ async def _search_factcheck(query: str) -> list[dict]:
                         "rating": review.get("textualRating", ""),
                         "publisher": review.get("publisher", {}).get("name", ""),
                     })
+            logger.info(f"FactCheck returned {len(results)} results")
             return results
         except Exception as e:
             logger.warning(f"Google Fact Check search failed: {e}")
@@ -163,8 +204,15 @@ async def _search_duckduckgo(query: str) -> list[dict]:
     """Search DuckDuckGo. No API key needed but can be rate-limited."""
     def _fetch():
         try:
+            # Try the new 'ddgs' package first, fall back to old name
+            try:
+                from ddgs import DDGS
+            except ImportError:
+                from duckduckgo_search import DDGS
+
             with DDGS() as ddgs:
                 raw = list(ddgs.text(query, max_results=8))
+
             results = []
             for item in raw:
                 url = item.get("href", "")
@@ -176,6 +224,7 @@ async def _search_duckduckgo(query: str) -> list[dict]:
                     "domain": domain,
                     "provider": "duckduckgo",
                 })
+            logger.info(f"DuckDuckGo returned {len(results)} results")
             return results
         except Exception as e:
             logger.warning(f"DuckDuckGo search failed: {e}")
@@ -207,7 +256,6 @@ def _compute_verdict(
 ) -> dict:
     """
     Cross-reference all sources and fact-checks to produce a verdict.
-
     Returns {verdict, confidence, explanation}.
     """
     # --- Phase 1: Check existing fact-checks (strongest signal) ---
@@ -216,7 +264,6 @@ def _compute_verdict(
         real_ratings = []
         for fc in fact_checks:
             rating = fc.get("rating", "").lower()
-            # Common fact-check rating keywords
             if any(w in rating for w in [
                 "false", "fake", "pants on fire", "incorrect",
                 "misleading", "mostly false", "not true", "hoax",
@@ -336,6 +383,7 @@ async def scrape_verify(news_text: str) -> dict:
     Search multiple APIs, cross-reference results, and produce a verdict.
     """
     query = _build_query(news_text)
+    logger.info(f"Built search query: '{query}' (from {len(news_text)} chars of input)")
 
     # Run all providers in parallel
     gnews_task = _search_gnews(query)
@@ -348,22 +396,21 @@ async def scrape_verify(news_text: str) -> dict:
 
     # Track which providers returned results
     providers_used = []
-    if gnews_results:
+    if os.getenv("GNEWS_API_KEY", "").strip():
         providers_used.append("gnews")
-    if factcheck_results:
+    if os.getenv("GOOGLE_FACTCHECK_API_KEY", "").strip():
         providers_used.append("factcheck")
-    if ddg_results:
-        providers_used.append("duckduckgo")
-
-    # Also note which were configured but returned nothing
-    if os.getenv("GNEWS_API_KEY", "").strip() and not gnews_results:
-        providers_used.append("gnews")  # attempted
-    if os.getenv("GOOGLE_FACTCHECK_API_KEY", "").strip() and not factcheck_results:
-        providers_used.append("factcheck")  # attempted
-    providers_used = list(dict.fromkeys(providers_used))  # dedupe, preserve order
+    providers_used.append("duckduckgo")  # always attempted
 
     # Merge and deduplicate
     all_sources = _deduplicate(gnews_results + ddg_results)
+
+    logger.info(
+        f"Results — GNews: {len(gnews_results)}, "
+        f"FactCheck: {len(factcheck_results)}, "
+        f"DDG: {len(ddg_results)}, "
+        f"Merged: {len(all_sources)}"
+    )
 
     # Compute verdict
     verdict_data = _compute_verdict(all_sources, factcheck_results, providers_used)

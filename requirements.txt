@@ -10,4 +10,5 @@ pandas
 requests
 beautifulsoup4
 duckduckgo-search
+ddgs
 python-dotenv
