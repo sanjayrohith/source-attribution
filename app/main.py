@@ -7,6 +7,7 @@ from .style_features import extract_style_features
 from .fake_model import predict_fake
 from .source_model import predict_source
 from .impersonation import check_impersonation
+from .scraper import scrape_verify
 
 app = FastAPI(title="Fake News & Source Impersonation API")
 
@@ -23,6 +24,9 @@ class NewsRequest(BaseModel):
     title: str
     content: str
     claimed_source: str
+
+class ScrapeRequest(BaseModel):
+    content: str
 
 @app.post("/analyze")
 def analyze_news(req: NewsRequest):
@@ -51,3 +55,9 @@ def analyze_news(req: NewsRequest):
         "impersonation_detected": impersonation,
         "claimed_source": req.claimed_source
     }
+
+@app.post("/scrape-verify")
+async def scrape_verify_news(req: ScrapeRequest):
+    result = await scrape_verify(req.content)
+    return result
+

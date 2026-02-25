@@ -7,3 +7,6 @@ textblob
 joblib
 numpy
 pandas
+requests
+beautifulsoup4
+duckduckgo-search
